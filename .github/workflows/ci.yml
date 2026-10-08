@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read          # least privilege for the workflow token
+
+jobs:
+  lint:
+    name: Lint (Python, shell, Kubernetes)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Ruff (style + bugbear + bandit security rules)
+        run: pipx run ruff==0.16.10 check services tests
+      - name: Shell syntax
+        run: for f in scripts/*.sh db/*.sh; do bash -n "$f"; done
+      - name: Validate Kubernetes manifests
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz
+          sed 's|IMAGE_REPO|example/repo|; s|DOMAIN|1-2-3-4.sslip.io|' k8s/*.yaml > /tmp/all.yaml
+          ./kubeconform -strict -summary -ignore-missing-schemas /tmp/all.yaml
+
+  build:
+    name: Build images
+    runs-on: ubuntu-24.04
+    needs: lint
+    strategy:
+      matrix:
+        service: [auth, directory, audit]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ${{ matrix.service }} (hash-pinned dependencies)
+        run: docker build --build-arg SERVICE=${{ matrix.service }} -t ${{ matrix.service }}:ci services/
+
+  build-gateway:
+    name: Build gateway image
+    runs-on: ubuntu-24.04
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t gateway:ci gateway/
