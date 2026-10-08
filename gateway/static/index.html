@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Portcullis IAM</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <div class="brand"><span class="logo" aria-hidden="true"></span>Portcullis <small>Identity &amp; Access</small></div>
+    <div id="whoami" hidden>
+      <span id="who"></span> <span id="role-badge" class="badge"></span>
+      <button id="logout" class="ghost" type="button">Sign out</button>
+    </div>
+  </header>
+
+  <main>
+    <p id="msg" role="status" aria-live="polite" hidden></p>
+
+    <section id="auth-view" class="card narrow">
+      <div class="tabs" role="tablist">
+        <button type="button" role="tab" data-tab="login" aria-selected="true">Sign in</button>
+        <button type="button" role="tab" data-tab="register" aria-selected="false">Create account</button>
+      </div>
+
+      <form id="login-form" autocomplete="on">
+        <label>Username <input name="username" required maxlength="32" autocomplete="username" autocapitalize="none" spellcheck="false"></label>
+        <label>Password <input name="password" type="password" required maxlength="128" autocomplete="current-password"></label>
+        <label id="totp-row" hidden>Authenticator code
+          <input name="totp" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code">
+        </label>
+        <button type="submit">Sign in</button>
+      </form>
+
+      <form id="register-form" hidden>
+        <label>Username <input name="username" required pattern="[a-z0-9_.\-]{3,32}" maxlength="32" autocomplete="username" autocapitalize="none" spellcheck="false">
+          <small>3–32 characters: lowercase letters, digits, <code>. _ -</code></small></label>
+        <label>Password <input name="password" type="password" required minlength="12" maxlength="128" autocomplete="new-password">
+          <small>At least 12 characters. A passphrase works well. Leaked passwords are rejected.</small></label>
+        <label>Confirm password <input name="confirm" type="password" required minlength="12" maxlength="128" autocomplete="new-password"></label>
+        <button type="submit">Create account</button>
+      </form>
+    </section>
+
+    <section id="app-view" hidden>
+      <nav class="tabs" role="tablist">
+        <button type="button" role="tab" data-view="account" aria-selected="true">My account</button>
+        <button type="button" role="tab" data-view="users" aria-selected="false" hidden>Users</button>
+        <button type="button" role="tab" data-view="audit" aria-selected="false" hidden>Security log</button>
+      </nav>
+
+      <section id="view-account" class="card">
+        <h2>My account</h2>
+        <dl id="account-details" class="details"></dl>
+        <div id="mfa-box"></div>
+      </section>
+
+      <section id="view-users" class="card" hidden>
+        <h2>Users</h2>
+        <form id="user-search" class="row">
+          <label class="grow">Search by username <input id="user-q" maxlength="32" autocapitalize="none" spellcheck="false"></label>
+          <button type="submit">Search</button>
+        </form>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Username</th><th>Role</th><th>Status</th><th>MFA</th><th>Lockout</th><th>Last sign-in</th><th>Actions</th></tr></thead>
+            <tbody id="users-body"></tbody>
+          </table>
+        </div>
+        <div id="users-pager" class="pager"></div>
+      </section>
+
+      <section id="view-audit" class="card" hidden>
+        <h2>Security log</h2>
+        <div id="stats" class="tiles"></div>
+        <div class="row">
+          <button id="verify" type="button">Verify log integrity</button>
+          <span id="verify-result" role="status" aria-live="polite"></span>
+        </div>
+        <div class="row">
+          <label>Event type
+            <select id="audit-filter">
+              <option value="">All events</option>
+              <option value="login_success">Sign-in succeeded</option>
+              <option value="login_failed">Sign-in failed</option>
+              <option value="login_blocked">Sign-in blocked</option>
+              <option value="account_locked">Account locked</option>
+              <option value="user_registered">Account created</option>
+              <option value="user_updated">User changed</option>
+              <option value="user_unlocked">User unlocked</option>
+              <option value="mfa_enabled">MFA enabled</option>
+              <option value="logout">Signed out</option>
+            </select>
+          </label>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>#</th><th>Time</th><th>Event</th><th>Outcome</th><th>By</th><th>On</th><th>IP</th><th>Detail</th></tr></thead>
+            <tbody id="audit-body"></tbody>
+          </table>
+        </div>
+        <div id="audit-pager" class="pager"></div>
+      </section>
+    </section>
+  </main>
+
+  <footer id="served" class="muted"></footer>
+</body>
+</html>
