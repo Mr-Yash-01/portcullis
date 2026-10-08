@@ -1,0 +1,12 @@
+---
+# Everything runs in one namespace that enforces the Kubernetes "restricted" Pod Security Standard:
+# any pod that runs as root, keeps Linux capabilities or allows privilege escalation is rejected.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: portcullis
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted

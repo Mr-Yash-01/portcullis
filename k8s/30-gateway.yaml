@@ -1,0 +1,141 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: portcullis
+  annotations:
+    cloud.google.com/neg: '{"ingress": true}'                       # LB sends traffic straight to pod IPs
+    cloud.google.com/backend-config: '{"default": "gateway-backend"}'
+spec:
+  type: ClusterIP                                                  # not exposed except through the Ingress
+  selector: {app: gateway}
+  ports: [{port: 80, targetPort: 8080}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: portcullis
+  annotations:
+    kubernetes.io/change-cause: "v1 initial release"
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels: {app: gateway}
+  template:
+    metadata:
+      labels: {app: gateway}
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false                    # no auto-injected *_PORT env vars (they clash with REDIS_PORT etc.)
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101                                             # nginx user in the unprivileged image
+        runAsGroup: 101
+        seccompProfile: {type: RuntimeDefault}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector: {matchLabels: {app: gateway}}
+      containers:
+        - name: gateway
+          image: IMAGE_REPO/gateway:v1
+          ports: [{containerPort: 8080}]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 50m, memory: 32Mi}
+            limits: {cpu: 300m, memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /healthz, port: 8080}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /healthz, port: 8080}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          lifecycle:
+            preStop: {exec: {command: ["sleep", "15"]}}           # give the cloud LB time to stop routing here
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}                         # pid file + proxy buffers
+      volumes:
+        - {name: tmp, emptyDir: {sizeLimit: 64Mi}}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: gateway
+  namespace: portcullis
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: gateway}
+  minReplicas: 2
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource: {name: cpu, target: {type: Utilization, averageUtilization: 60}}
+  behavior:
+    scaleDown: {stabilizationWindowSeconds: 60}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: gateway
+  namespace: portcullis
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app: gateway}
+---
+# Google Cloud load balancer settings for the gateway backend.
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: gateway-backend
+  namespace: portcullis
+spec:
+  healthCheck: {type: HTTP, requestPath: /healthz, port: 8080}
+  securityPolicy: {name: portcullis-waf}                           # Cloud Armor WAF + per-IP rate limiting
+  timeoutSec: 30
+  connectionDraining: {drainingTimeoutSec: 15}
+  logging: {enable: true, sampleRate: 1.0}                         # every request logged at the edge (forensics)
+---
+apiVersion: networking.gke.io/v1beta1
+kind: FrontendConfig
+metadata:
+  name: gateway-frontend
+  namespace: portcullis
+spec:
+  redirectToHttps: {enabled: true, responseCodeName: MOVED_PERMANENTLY_DEFAULT}
+  sslPolicy: portcullis-tls                                        # TLS 1.2+ with modern ciphers only
+---
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: portcullis-cert
+  namespace: portcullis
+spec:
+  domains: [DOMAIN]                                                # Google issues and renews the certificate
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: portcullis
+  namespace: portcullis
+  annotations:
+    kubernetes.io/ingress.class: gce                               # global external HTTP(S) load balancer
+    kubernetes.io/ingress.global-static-ip-name: portcullis-ip
+    networking.gke.io/managed-certificates: portcullis-cert
+    networking.gke.io/v1beta1.FrontendConfig: gateway-frontend
+spec:
+  defaultBackend:
+    service:
+      name: gateway
+      port: {number: 80}

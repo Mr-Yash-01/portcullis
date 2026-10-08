@@ -1,0 +1,69 @@
+# Zero-trust networking: every flow is denied unless listed here.
+#   Internet -> LB -> gateway -> auth/directory/audit -> postgres/redis
+# Egress is denied too, so a compromised pod can't reach the internet or the
+# cloud metadata server (169.254.169.254), which blocks SSRF credential theft.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: default-deny-all, namespace: portcullis}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: allow-dns, namespace: portcullis}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    # DNS only (port 53), to any address: GKE may resolve via kube-dns pods or the node-local
+    # metadata DNS (169.254.169.254:53). The metadata server's HTTP API (port 80) stays blocked.
+    - ports: [{port: 53, protocol: UDP}, {port: 53, protocol: TCP}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: gateway, namespace: portcullis}
+spec:
+  podSelector: {matchLabels: {app: gateway}}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:                                           # Google load balancer and health-check ranges only
+        - ipBlock: {cidr: 35.191.0.0/16}
+        - ipBlock: {cidr: 130.211.0.0/22}
+      ports: [{port: 8080}]
+  egress:
+    - to:
+        - podSelector: {matchLabels: {app: auth}}
+        - podSelector: {matchLabels: {app: directory}}
+        - podSelector: {matchLabels: {app: audit}}
+      ports: [{port: 8000}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: api-services, namespace: portcullis}
+spec:
+  podSelector:
+    matchExpressions: [{key: app, operator: In, values: [auth, directory, audit]}]
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from: [{podSelector: {matchLabels: {app: gateway}}}]   # only the gateway may call the APIs
+      ports: [{port: 8000}]
+  egress:
+    - to: [{podSelector: {matchLabels: {app: postgres}}}]
+      ports: [{port: 5432}]
+    - to: [{podSelector: {matchLabels: {app: redis}}}]
+      ports: [{port: 6379}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: datastores, namespace: portcullis}
+spec:
+  podSelector:
+    matchExpressions: [{key: app, operator: In, values: [postgres, redis]}]
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions: [{key: app, operator: In, values: [auth, directory, audit]}]
+      ports: [{port: 5432}, {port: 6379}]
