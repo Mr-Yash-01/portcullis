@@ -66,6 +66,26 @@ EOF
   rollback)  # back to the previous version
     $K rollout history deployment/auth; $K rollout undo deployment/auth; $K rollout status deployment/auth ;;
 
+  sync)      # merge the latest portcullis.bundle from Claude, push to GitHub, show what changed
+    b=~/portcullis.bundle
+    [ -f $b ] || { echo "Upload portcullis.bundle to Cloud Shell first"; exit 1; }
+    before=$(git -C $APP rev-parse HEAD)
+    git -C $APP pull --ff-only $b main && git -C $APP push && rm -f $b
+    git -C $APP log --oneline $before..HEAD
+    echo; echo "Changed services (deploy each with: ~/pc.sh deploy <name>):"
+    git -C $APP diff --name-only $before HEAD | grep -oE '^(services/(auth|directory|audit)|gateway)' | sort -u | sed 's|services/||' ;;
+
+  deploy)    # rebuild one service in Cloud Build and roll it out:  ~/pc.sh deploy audit
+    svc=${2:?usage: ~/pc.sh deploy auth|directory|audit|gateway}
+    tag=$(git -C $APP rev-parse --short HEAD)       # immutable tag = commit, so every rollout is traceable
+    if [ "$svc" = gateway ]; then args="'build', '-t', '$REPO/gateway:$tag', 'gateway/'"
+    else args="'build', '--build-arg', 'SERVICE=$svc', '--build-arg', 'VERSION=$tag', '-t', '$REPO/$svc:$tag', 'services/'"; fi
+    printf "steps:\n- name: gcr.io/cloud-builders/docker\n  args: [%s]\nimages: ['%s']\n" "$args" "$REPO/$svc:$tag" > /tmp/deploy.yaml
+    (cd $APP && gcloud builds submit --config /tmp/deploy.yaml .) || exit 1
+    $K set image deployment/$svc $svc=$REPO/$svc:$tag
+    $K annotate deployment/$svc kubernetes.io/change-cause="deploy $tag" --overwrite
+    $K rollout status deployment/$svc ;;
+
   tamper)    # edit the newest audit row directly in the DB; then press "Verify log integrity" in the UI
     $K exec postgres-0 -- psql -U postgres -d iam -c "UPDATE audit_events SET actor='nobody' WHERE id=(SELECT max(id) FROM audit_events)" ;;
 
