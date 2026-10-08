@@ -73,13 +73,16 @@ EOF
     $K exec postgres-0 -- psql -U postgres -d iam -c "UPDATE users SET role='admin' WHERE username='${2:?give a username}'" ;;
 
   pause)     # stop the 3 nodes to save credit (data is kept)
+    # Stop app pods first: their PodDisruptionBudgets would otherwise block the node drain for up to 1 hour.
+    $K scale deployment --all --replicas=0
     gcloud container clusters update portcullis --zone $ZONE --node-pool default-pool --no-enable-autoscaling
     gcloud container clusters resize portcullis --zone $ZONE --node-pool default-pool --num-nodes 0 --quiet ;;
 
   resume)    # bring the nodes back (~3 min until pods are Running)
     gcloud container clusters resize portcullis --zone $ZONE --node-pool default-pool --num-nodes 3 --quiet
     gcloud container clusters update portcullis --zone $ZONE --node-pool default-pool --enable-autoscaling --min-nodes 3 --max-nodes 4
-    gcloud container clusters get-credentials portcullis --zone $ZONE ;;
+    gcloud container clusters get-credentials portcullis --zone $ZONE
+    $K scale deployment --all --replicas=2 ;;
 
   *) grep -E '^  [a-z0-9-]+\)' "$0" | sed 's/)//' ;;
 esac
