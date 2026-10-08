@@ -1,0 +1,82 @@
+# Local development stack (same images and hardening as Kubernetes).
+#   sh scripts/gen-secrets.sh && docker compose up --build    ->  http://localhost:8080 (use Chrome)
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs: [/tmp]
+  restart: unless-stopped
+
+x-python: &python
+  <<: *hardening
+  depends_on:
+    postgres: {condition: service_healthy}
+    redis: {condition: service_started}
+
+services:
+  gateway:
+    <<: *hardening
+    build: ./gateway
+    ports: ["8080:8080"]               # the only published port: everything else is internal
+    depends_on: [auth, directory, audit]
+
+  auth:
+    <<: *python
+    build: {context: ./services, args: {SERVICE: auth}}
+    secrets: [jwt_private.pem, jwt_public.pem, mfa_key, db_auth_password, redis_auth_password]
+
+  directory:
+    <<: *python
+    build: {context: ./services, args: {SERVICE: directory}}
+    secrets: [jwt_public.pem, db_directory_password, redis_directory_password]
+
+  audit:
+    <<: *python
+    build: {context: ./services, args: {SERVICE: audit}}
+    secrets: [jwt_public.pem, db_audit_password, redis_audit_password]
+
+  postgres:
+    <<: *hardening
+    image: postgres:17.11-alpine
+    user: "70:70"
+    environment:
+      POSTGRES_DB: iam
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_admin_password
+      PGDATA: /var/lib/postgresql/data/pgdata
+    command: ["postgres", "-c", "log_connections=on"]
+    secrets: [db_admin_password, db_auth_password, db_directory_password, db_audit_password]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init.sh:/docker-entrypoint-initdb.d/init.sh:ro
+    tmpfs: [/tmp, /var/run/postgresql]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "iam"]
+      interval: 3s
+      retries: 20
+
+  redis:
+    <<: *hardening
+    image: redis:8.10.2-alpine
+    user: "999:1000"
+    command: ["redis-server", "/etc/redis/redis.conf"]
+    secrets: [redis_acl]
+    volumes:
+      - redisdata:/data
+      - ./redis/redis.conf:/etc/redis/redis.conf:ro
+
+volumes:
+  pgdata:
+  redisdata:
+
+secrets:
+  jwt_private.pem: {file: ./secrets/jwt_private.pem}
+  jwt_public.pem: {file: ./secrets/jwt_public.pem}
+  mfa_key: {file: ./secrets/mfa_key}
+  db_admin_password: {file: ./secrets/db_admin_password}
+  db_auth_password: {file: ./secrets/db_auth_password}
+  db_directory_password: {file: ./secrets/db_directory_password}
+  db_audit_password: {file: ./secrets/db_audit_password}
+  redis_auth_password: {file: ./secrets/redis_auth_password}
+  redis_directory_password: {file: ./secrets/redis_directory_password}
+  redis_audit_password: {file: ./secrets/redis_audit_password}
+  redis_acl: {file: ./secrets/redis_acl}
