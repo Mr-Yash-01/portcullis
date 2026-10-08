@@ -1,0 +1,13 @@
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "S", "I"]
+ignore = [
+  "E501",  # long lines in SQL/config strings are clearer unwrapped
+  "B008",  # FastAPI's Depends()/Query() in defaults is the framework's idiom
+  "S101",  # asserts are used in the test suite
+  "S603", "S607",  # the test suite runs psql via subprocess on purpose
+  "S608",  # SQL is parameterised; dynamic parts are fixed column lists
+]
