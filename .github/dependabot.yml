@@ -4,6 +4,12 @@ updates:
   - package-ecosystem: pip
     directory: /services
     schedule: {interval: weekly}
+    groups:
+      # One PR for all Python packages: tightly coupled pins (e.g. pydantic needs an exact
+      # pydantic-core) must move together, and requirements.in lets Dependabot re-run
+      # pip-compile so the SHA-256 hashes stay consistent.
+      python-packages:
+        patterns: ["*"]
   - package-ecosystem: docker
     directories: [/services, /gateway]
     schedule: {interval: weekly}
