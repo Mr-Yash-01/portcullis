@@ -1,6 +1,8 @@
 # Portcullis: a secure, scalable Identity & Access Management platform on GKE
 
-INFS3208 Individual Project (Type I) · Yash Vadukiya (49788727)
+[![CI](https://github.com/Mr-Yash-01/portcullis/actions/workflows/ci.yml/badge.svg)](https://github.com/Mr-Yash-01/portcullis/actions/workflows/ci.yml)
+
+INFS3208 Cloud Computing · Individual Project (Type I) · The University of Queensland
 
 Portcullis is a small IAM platform:
 - user registration and sign-in with TOTP multi-factor authentication
