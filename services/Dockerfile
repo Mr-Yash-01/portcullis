@@ -1,6 +1,6 @@
 # One Dockerfile for all three Python microservices; each build contains only its own code.
 #   docker build --build-arg SERVICE=auth --build-arg VERSION=v1 -t auth:v1 services/
-FROM python:3.13.16-slim
+FROM python:3.15.0-slim
 
 ARG SERVICE
 ARG VERSION=v1
